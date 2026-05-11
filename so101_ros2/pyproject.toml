@@ -1,0 +1,71 @@
+[tool.poetry]
+name = "so101-ros2"
+version = "0.1.0"
+description = "SO-ARM101 + ROS2 data collection workflow built on top of LeRobot."
+authors = ["Ali Cheraghi <seyedalicheraghi@gmail.com>"]
+readme = "README.md"
+# The pyproject.toml lives inside so101_ros2/, but the package itself is also
+# named so101_ros2 and lives in the same directory. Pointing `from = ".."`
+# lets Poetry install so101_ros2 as an editable package into the venv so
+# `python -m so101_ros2.dashboard` works from any cwd.
+packages = [{include = "so101_ros2", from = ".."}]
+
+[tool.poetry.dependencies]
+# Upper-bounded at <3.15 so PySide6 (which doesn't yet publish wheels for
+# 3.15+) is resolvable. Bump this when PySide6 catches up.
+python = ">=3.10,<3.15"
+
+# Upstream LeRobot installed editable via its own setuptools-based pyproject.
+# `extras = ["feetech"]` brings in `feetech-servo-sdk` (`scservo_sdk` Python
+# import) — required to talk to the SO-ARM101's STS3215 motors. Note: there
+# is NO `so101` extra in upstream lerobot despite what older guides say;
+# the right extra for the SO-ARM family is `feetech`.
+# If this resolution step is too slow, comment this line out and run:
+#     poetry run pip install -e "..[feetech]"
+lerobot = { path = "..", develop = true, extras = ["feetech"] }
+
+# Dashboard GUI (PySide6 = official LGPL Qt for Python).
+PySide6 = "^6.6"
+
+# Direct librealsense2 SDK access for the Intel RealSense D415. We use this
+# instead of cv2.VideoCapture because cv2 reads the RealSense as a generic
+# UVC webcam (bypasses the on-camera ISP, often grabs the wrong endpoint).
+pyrealsense2 = "^2.55"
+
+# NumPy is intentionally NOT pinned here: LeRobot's rerun-sdk dep requires
+# numpy>=2, and modern ROS2 builds (RoboStack ≥ 2024-Q4, Ubuntu 24.04 apt) ship
+# a cv_bridge that is compatible with the NumPy 2.x ABI.
+#
+# If you DO hit `ImportError: numpy.core.multiarray failed to import` from
+# cv_bridge at runtime, your cv_bridge was built against NumPy 1.x. Two fixes:
+#   • Upgrade your ROS2 install (RoboStack: `mamba update -c robostack ros-humble-cv-bridge`).
+#   • Or, downgrade NumPy in the venv:  poetry run pip install "numpy<2"
+#     (works because pip lets you violate Poetry-resolved version constraints,
+#     and rerun is only used for visualisation — losing it doesn't break the
+#     data-collection or training paths).
+
+# cv2 is pulled in transitively by lerobot (opencv-python-headless). The
+# dashboard renders frames through Qt, so the headless build is sufficient —
+# we do NOT pin opencv-python here to avoid clobbering lerobot's headless
+# version.
+
+# rclpy, cv_bridge, sensor_msgs are NOT poetry-managed — they come from your
+# system ROS2 install (e.g. /opt/ros/humble/...). Source ROS2 before running
+# any so101_ros2 module so PYTHONPATH picks them up.
+
+[tool.poetry.scripts]
+# After `poetry install`, these are available on the venv's PATH:
+#   poetry run so101-configure   (instead of:  python -m so101_ros2.configure_cameras)
+#   poetry run so101-publisher   --index <N> --topic <topic>
+#   poetry run so101-dashboard
+#   poetry run so101-record
+so101-configure        = "so101_ros2.configure_cameras:main"
+so101-publisher        = "so101_ros2.camera_publisher:main"
+so101-publish          = "so101_ros2.publish_all:main"
+so101-dashboard        = "so101_ros2.dashboard:main"
+so101-record           = "so101_ros2.data_collector:main"
+so101-realsense-check  = "so101_ros2.realsense_check:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

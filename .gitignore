@@ -12,6 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+### so101_ros2 (machine-specific generated state) ###
+so101_ros2/camera_config.json
+
+### Claude (local-only AI assistant notes) ###
+CLAUDE.md
+
 ### Environments & Dependencies ###
 .env
 .venv

@@ -1,0 +1,17 @@
+# Project-local Poetry config — overrides ~/.config/pypoetry/config.toml for
+# this project only. The setting below makes Poetry create the venv inside
+# this directory (so101_ros2/.venv/) instead of in ~/.cache/pypoetry/.
+#
+# Why .venv specifically:
+#   * It's the de-facto Python standard — VS Code, PyCharm, Cursor, and
+#     most language servers auto-detect a `.venv` next to the project.
+#   * Already covered by the repo's .gitignore.
+#   * `direnv`, `pyright`, and `pylsp` look here by default too.
+#
+# `prefer-active-python = true` tells Poetry to honour `poetry env use`
+# selections and any already-active interpreter, instead of falling back to
+# whatever the Poetry binary itself was installed against.
+
+[virtualenvs]
+in-project = true
+prefer-active-python = true
