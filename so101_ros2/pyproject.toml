@@ -60,11 +60,16 @@ pyrealsense2 = "^2.55"
 #   poetry run so101-publisher --index <N> --topic <topic>
 #   poetry run so101-dashboard       (PySide6 GUI: publish/stop + previews)
 #   poetry run so101-teleop          (= python -m so101_ros2.safe_teleop)
+#   poetry run so101-record          (= python -m so101_ros2.data_collector)
+#   poetry run so101-inference --checkpoint <path> --task "..."
 so101-configure        = "so101_ros2.configure_cameras:main"
 so101-realsense-check  = "so101_ros2.realsense_check:main"
 so101-publisher        = "so101_ros2.camera_publisher:main"
 so101-dashboard        = "so101_ros2.dashboard:main"
 so101-teleop           = "so101_ros2.safe_teleop:main"
+so101-record           = "so101_ros2.data_collector:main"
+so101-visualize        = "so101_ros2.visualize_dataset:main"
+so101-inference        = "so101_ros2.inference.run_inference:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

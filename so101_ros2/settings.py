@@ -16,16 +16,19 @@ import sys
 from pathlib import Path
 
 # ── Hardware ports ────────────────────────────────────────────────────────────
-# Linux  : "/dev/ttyACM0", "/dev/ttyACM1", or "/dev/ttyUSB0"
-# macOS  : "/dev/cu.usbmodem5B415319121"  (long serial-number suffix)
+# `/dev/ttyACM*` numbering is assigned in plug-detect order, so it swaps
+# leader/follower across reboots and replugs. Using the udev-managed
+# `/dev/serial/by-id/` symlinks keys on each board's USB serial number,
+# which is stable for the lifetime of the boards.
 #
-# To find which port is which, run the LeRobot helper — it prompts you to
-# unplug each board in turn and prints the matching path:
-#     poetry run lerobot-find-port
+# Mapping for this rig (verified 2026-05-15):
+#   leader   → serial 5B41531912
+#   follower → serial 5B41532892
 #
-# Or do it manually: `ls /dev/ttyACM*` with each board plugged in alone.
-FOLLOWER_PORT = "/dev/ttyACM0"
-LEADER_PORT   = "/dev/ttyACM1"
+# If you swap boards or get new ones, list them with `ls /dev/serial/by-id/`
+# and update the two paths below.
+LEADER_PORT   = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B41531912-if00"
+FOLLOWER_PORT = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5B41532892-if00"
 FOLLOWER_ID   = "my_follower_arm"
 LEADER_ID     = "my_leader_arm"
 

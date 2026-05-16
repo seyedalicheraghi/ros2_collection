@@ -71,10 +71,14 @@ ADDR_MAX_TORQUE_LIMIT     = 16   # 2 bytes, EEPROM — caps motor current
 ADDR_P_COEFFICIENT        = 21   # 1 byte — proportional gain (higher = stronger hold)
 ADDR_D_COEFFICIENT        = 22   # 1 byte — derivative gain (higher = more damping)
 ADDR_I_COEFFICIENT        = 23   # 1 byte — integral gain
+ADDR_PROTECTION_CURRENT   = 28   # 2 bytes, EEPROM — current threshold for protection trip
+ADDR_OVERLOAD_TORQUE      = 36   # 1 byte, EEPROM — torque % held when overload protection trips
 ADDR_TORQUE_ENABLE        = 40   # 1 byte, RAM
 ADDR_ACCELERATION         = 41   # 1 byte, RAM
 ADDR_GOAL_POSITION        = 42   # 2 bytes, RAM
 ADDR_PRESENT_POSITION     = 56   # 2 bytes, read-only
+ADDR_PRESENT_VELOCITY     = 58   # 2 bytes, read-only — sign-magnitude (sign bit 15)
+ADDR_PRESENT_LOAD         = 60   # 2 bytes, read-only — sign-magnitude (sign bit 10)
 ADDR_MAXIMUM_ACCELERATION = 85   # 1 byte, EEPROM
 
 IDS = [1, 2, 3, 4, 5, 6]
@@ -95,35 +99,29 @@ READ_RETRIES = 3      # bus is genuinely marginal — 5-15% raw fail rate.
                       # Lowering retries exposes the failures as discrete-pulse
                       # behaviour (verified: dropping to 1 took success 99.5%→93%).
 
-# Per-motor (Max_Torque_Limit, Maximum_Acceleration).
-# Gravity-loaded joints need MORE torque to hold the arm but a LOW accel
-# limit so commanded motion ramps gently (controlled current draw → no
-# bus brown-out). Light joints stay at the conservative cap.
+# Per-motor settings aligned with upstream LeRobot's so101_follower.configure()
+# (src/lerobot/robots/so_follower/so_follower.py:156-170). Body joints stay at
+# firmware default Max_Torque_Limit=1000 and Max_Acceleration=254 — no local
+# caps. The gripper alone gets reduced limits to prevent burnout. P=16 across
+# the board, matching upstream's "lower value to avoid shakiness" comment.
 #
-# If shoulder_lift still droops, raise its torque toward 1000. If the bus
-# starts dropping reads on it again, lower its accel further (down to ~10).
+# WARNING: this rig's 12V supply has historically been marginal at these
+# upstream-default settings (see project notes: bus brown-out under load).
+# If `so101-teleop` regresses below ~99% success after this change, the
+# previous conservative caps were here for a reason — restore them or use
+# `lerobot-teleoperate` which writes the same upstream values.
 MOTOR_LIMITS: dict[int, tuple[str, int, int, int, int]] = {
     # (name, max_torque, max_accel, p_gain, d_gain)
-    # - max_torque: 0..1000, caps motor current draw (1000 = factory default).
-    # - max_accel:  0..254,  254 = LeRobot default = fastest, smoothest tracking.
-    # - p_gain: position-error gain. 32 = STS3215 factory. Higher = stiffer hold,
-    #           but also more prone to oscillation/jerkiness under load.
-    # - d_gain: derivative gain. 32 = factory. Higher = more damping (smooths
-    #           oscillations). Scale with gravity load on the joint.
-    # Restored from snapshots/20260515_014723__working_baseline/motor_limits.py
-    # after a "factory PID + accel=254 everywhere" experiment regressed teleop
-    # smoothness. The lower per-joint accel caps and bumped shoulder_lift P
-    # are not workarounds for the old loose hardware — they're tuned for
-    # smooth tracking on gravity-loaded joints (shoulder_lift, elbow_flex,
-    # wrist_flex). High accel on those causes visible jerk even with the
-    # mount fixed.
-    1: ("shoulder_pan",   800, 200, 32, 32),
-    2: ("shoulder_lift", 1000, 100, 40, 32),
-    3: ("elbow_flex",     900, 150, 32, 32),
-    4: ("wrist_flex",     800, 200, 32, 32),
-    5: ("wrist_roll",     700, 254, 32, 32),
-    6: ("gripper",        500, 254, 32, 32),
+    1: ("shoulder_pan",  1000, 254, 16, 32),
+    2: ("shoulder_lift", 1000, 254, 16, 32),
+    3: ("elbow_flex",    1000, 254, 16, 32),
+    4: ("wrist_flex",    1000, 254, 16, 32),
+    5: ("wrist_roll",    1000, 254, 16, 32),
+    6: ("gripper",        500, 254, 16, 32),
 }
+# Gripper-only burnout protection (upstream so_follower.py:168-170).
+GRIPPER_PROTECTION_CURRENT = 250   # ~50% of max current
+GRIPPER_OVERLOAD_TORQUE    = 25    # 25% torque when overloaded
 
 # ── ANSI ────────────────────────────────────────────────────────────
 _TTY = sys.stdout.isatty()
@@ -209,7 +207,7 @@ def _disable_leader_torque() -> None:
 
 def _apply_safe_limits() -> None:
     """Apply per-motor limits, then enable torque so motors hold present pose."""
-    print("applying per-motor limits:")
+    print("applying per-motor settings (upstream so101_follower.configure() values):")
     for sid in IDS:
         joint, torque_cap, accel_cap, p_gain, d_gain = MOTOR_LIMITS[sid]
         # disable torque so EEPROM writes (Max_Torque_Limit, Maximum_Acceleration) take effect
@@ -217,15 +215,20 @@ def _apply_safe_limits() -> None:
         # reset goal=present so re-enable doesn't lurch
         pos, _, _ = _pkt.read2ByteTxRx(_f_ph, sid, ADDR_PRESENT_POSITION)
         _pkt.write2ByteTxRx(_f_ph, sid, ADDR_GOAL_POSITION, pos)
-        # apply per-joint limits
+        # apply per-joint settings
         _pkt.write2ByteTxRx(_f_ph, sid, ADDR_MAX_TORQUE_LIMIT,     torque_cap)
         _pkt.write1ByteTxRx(_f_ph, sid, ADDR_MAXIMUM_ACCELERATION, accel_cap)
         _pkt.write1ByteTxRx(_f_ph, sid, ADDR_ACCELERATION,         accel_cap)
         _pkt.write1ByteTxRx(_f_ph, sid, ADDR_P_COEFFICIENT,        p_gain)
         _pkt.write1ByteTxRx(_f_ph, sid, ADDR_D_COEFFICIENT,        d_gain)
+        # Gripper-only burnout protection — matches upstream so_follower.py:168-170.
+        if sid == 6:
+            _pkt.write2ByteTxRx(_f_ph, sid, ADDR_PROTECTION_CURRENT, GRIPPER_PROTECTION_CURRENT)
+            _pkt.write1ByteTxRx(_f_ph, sid, ADDR_OVERLOAD_TORQUE,    GRIPPER_OVERLOAD_TORQUE)
         # enable torque (motor holds the goal=present)
         _pkt.write1ByteTxRx(_f_ph, sid, ADDR_TORQUE_ENABLE, 1)
-        print(f"  id={sid} {joint:<14}  torque≤{torque_cap}  accel≤{accel_cap}  P={p_gain}  D={d_gain}")
+        extra = f"  prot_I={GRIPPER_PROTECTION_CURRENT}  ovld_tq={GRIPPER_OVERLOAD_TORQUE}" if sid == 6 else ""
+        print(f"  id={sid} {joint:<14}  torque={torque_cap}  accel={accel_cap}  P={p_gain}  D={d_gain}{extra}")
 
 
 def _sync_read_retry(ph: PortHandler, group_read: GroupSyncRead) -> dict[int, int]:
@@ -237,6 +240,50 @@ def _sync_read_retry(ph: PortHandler, group_read: GroupSyncRead) -> dict[int, in
             return {sid: group_read.getData(sid, ADDR_PRESENT_POSITION, 2) for sid in IDS}
         last = f"comm={comm}"
     raise RuntimeError(f"sync_read after {READ_RETRIES + 1} tries: {last}")
+
+
+def _decode_sign_magnitude(value: int, sign_bit_index: int) -> int:
+    """Sign-magnitude decode used by STS3215 for Present_Velocity (bit 15)
+    and Present_Load (bit 10). Mirrors lerobot.motors.encoding_utils."""
+    direction_bit = (value >> sign_bit_index) & 1
+    magnitude = value & ((1 << sign_bit_index) - 1)
+    return -magnitude if direction_bit else magnitude
+
+
+def make_follower_pos_vel_load_read() -> GroupSyncRead:
+    """Build a GroupSyncRead covering Present_Position, Present_Velocity, and
+    Present_Load in a single 6-byte read per motor. One bus round-trip gives
+    all three signals — used by data_collector to record velocity/effort
+    without inflating the per-tick budget. Requires connect_arms() first."""
+    if _f_ph is None or _pkt is None:
+        raise RuntimeError("call connect_arms() before make_follower_pos_vel_load_read()")
+    g = GroupSyncRead(_f_ph, _pkt, ADDR_PRESENT_POSITION, 6)
+    for sid in IDS:
+        g.addParam(sid)
+    return g
+
+
+def sync_read_pos_vel_load_retry(group_read: GroupSyncRead) -> dict[int, tuple[int, int, int]]:
+    """Retrying read of (position_counts, velocity_counts_per_sec, load_signed)
+    per motor. Velocity and load are sign-magnitude-decoded. Returns raw signed
+    integers — unit conversion is the caller's responsibility."""
+    last = "?"
+    for _ in range(READ_RETRIES + 1):
+        comm = group_read.txRxPacket()
+        if comm == 0:
+            out: dict[int, tuple[int, int, int]] = {}
+            for sid in IDS:
+                pos      = group_read.getData(sid, ADDR_PRESENT_POSITION, 2)
+                vel_raw  = group_read.getData(sid, ADDR_PRESENT_VELOCITY, 2)
+                load_raw = group_read.getData(sid, ADDR_PRESENT_LOAD,     2)
+                out[sid] = (
+                    pos,
+                    _decode_sign_magnitude(vel_raw,  15),
+                    _decode_sign_magnitude(load_raw, 10),
+                )
+            return out
+        last = f"comm={comm}"
+    raise RuntimeError(f"sync_read pos+vel+load after {READ_RETRIES + 1} tries: {last}")
 
 
 def _load_calibration() -> dict[int, tuple[int, int, int, int]]:
