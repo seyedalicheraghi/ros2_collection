@@ -15,6 +15,9 @@
 ### so101_ros2 (machine-specific generated state) ###
 so101_ros2/camera_config.json
 
+### Pi0.5 LoRA checkpoint (15 GB — too large for git) ###
+checkpoints/
+
 ### Claude (local-only AI assistant notes) ###
 CLAUDE.md
 

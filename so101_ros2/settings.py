@@ -24,8 +24,8 @@ from pathlib import Path
 #     poetry run lerobot-find-port
 #
 # Or do it manually: `ls /dev/ttyACM*` with each board plugged in alone.
-FOLLOWER_PORT = "/dev/ttyACM1"
-LEADER_PORT   = "/dev/ttyACM0"
+FOLLOWER_PORT = "/dev/ttyACM0"
+LEADER_PORT   = "/dev/ttyACM1"
 FOLLOWER_ID   = "my_follower_arm"
 LEADER_ID     = "my_leader_arm"
 
@@ -81,6 +81,11 @@ def realsense_launch_cmd() -> list[str]:
         "enable_infra2:=false",
         "pointcloud.enable:=false",
         "publish_tf:=false",
+        # Power-cycle the camera at launch. Fixes "depth_module.enable_auto_exposure:
+        # Device or resource busy" XU errors that hit when librealsense queries
+        # depth-module options on a camera left in a stale state by a prior failed
+        # init or by hot-swapping the sensor (we just replaced ours mid-session).
+        "initial_reset:=true",
         f"rgb_camera.color_profile:={IMAGE_W}x{IMAGE_H}x{FPS}",
     ]
 

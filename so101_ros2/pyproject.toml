@@ -55,17 +55,22 @@ pyrealsense2 = "^2.55"
 
 [tool.poetry.scripts]
 # After `poetry install`, these are available on the venv's PATH:
-#   poetry run so101-configure   (instead of:  python -m so101_ros2.configure_cameras)
-#   poetry run so101-publisher   --index <N> --topic <topic>
-#   poetry run so101-dashboard
-#   poetry run so101-record
+#   poetry run so101-configure       (= python -m so101_ros2.configure_cameras)
+#   poetry run so101-realsense-check
+#   poetry run so101-publisher --index <N> --topic <topic>
+#   poetry run so101-dashboard       (PySide6 GUI: publish/stop + previews)
+#   poetry run so101-teleop          (= python -m so101_ros2.safe_teleop)
 so101-configure        = "so101_ros2.configure_cameras:main"
-so101-publisher        = "so101_ros2.camera_publisher:main"
-so101-publish          = "so101_ros2.publish_all:main"
-so101-dashboard        = "so101_ros2.dashboard:main"
-so101-record           = "so101_ros2.data_collector:main"
 so101-realsense-check  = "so101_ros2.realsense_check:main"
+so101-publisher        = "so101_ros2.camera_publisher:main"
+so101-dashboard        = "so101_ros2.dashboard:main"
+so101-teleop           = "so101_ros2.safe_teleop:main"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "pytest (>=9.0.3,<10.0.0)"
+]
